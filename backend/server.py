@@ -23,8 +23,7 @@ mp_hands = mp.solutions.hands
 mp_draw = mp.solutions.drawing_utils
 hands = mp_hands.Hands(min_detection_confidence=0.7, min_tracking_confidence=0.7, max_num_hands=1)
 
-# Initialize webcam
-cap = cv2.VideoCapture(0)
+
 
 # Canvas settings
 canvas = None
@@ -154,4 +153,5 @@ async def set_color(color: Dict[str, int]):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    port = int(os.environ.get("PORT", 8000))
+    uvicorn.run(app, host="0.0.0.0", port=port)

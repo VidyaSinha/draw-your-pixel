@@ -6,6 +6,7 @@ import numpy as np
 import mediapipe as mp
 from typing import Dict
 import json
+import os
 
 app = FastAPI()
 
@@ -23,7 +24,8 @@ mp_hands = mp.solutions.hands
 mp_draw = mp.solutions.drawing_utils
 hands = mp_hands.Hands(min_detection_confidence=0.7, min_tracking_confidence=0.7, max_num_hands=1)
 
-
+# Initialize webcam
+cap = cv2.VideoCapture(0)
 
 # Canvas settings
 canvas = None

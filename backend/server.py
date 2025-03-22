@@ -4,6 +4,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from typing import Dict
 import numpy as np
 import os
+import cv2
+from io import BytesIO
+import time
+import logging
 
 app = FastAPI()
 
@@ -18,11 +22,20 @@ app.add_middleware(
 
 # Initialize drawing components
 canvas = np.ones((480, 640, 3), dtype=np.uint8) * 255
-brush_color = (0, 0, 255) # Default to red color
+brush_color = (0, 0, 255)  # Default to red color
 
 @app.get("/")
 async def root():
     return {"message": "Server running"}
+
+def process_frame():
+    global canvas
+    while True:
+        _, buffer = cv2.imencode(".jpg", canvas)
+        frame = buffer.tobytes()
+        yield (b'--frame\r\n'
+               b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
+        time.sleep(0.1)
 
 @app.get("/video_feed")
 async def video_feed():
@@ -39,17 +52,19 @@ async def clear_canvas():
     return {"status": "success"}
 
 @app.post("/set_color")
-async def set_color(color: dict[str, int]):
+async def set_color(color: Dict[str, int]):
     global brush_color
     brush_color = (color.get("b", 0), color.get("g", 0), color.get("r", 0))
     return {"status": "success"}
 
 if __name__ == "__main__":
     import uvicorn
+    logging.basicConfig(level=logging.INFO)
     port = int(os.environ.get("PORT", "10000"))
+    logging.info(f"Starting server on host '0.0.0.0' and port {port}")
     uvicorn.run(
         "server:app",
         host="0.0.0.0",
         port=port,
-        reload=True
+        reload=True  # Remove this in production
     )

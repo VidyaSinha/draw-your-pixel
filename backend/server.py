@@ -1,6 +1,14 @@
 from fastapi import FastAPI
+from fastapi.responses import StreamingResponse
+from typing import Dict
+import numpy as np
+import os
 
 app = FastAPI()
+
+# Initialize drawing components
+canvas = np.ones((480, 640, 3), dtype=np.uint8) * 255
+brush_color = (0, 0, 255) # Default to red color
 
 @app.get("/")
 async def root():
@@ -21,15 +29,14 @@ async def clear_canvas():
     return {"status": "success"}
 
 @app.post("/set_color")
-async def set_color(color: Dict[str, int]):
+async def set_color(color: dict[str, int]):
     global brush_color
     brush_color = (color.get("b", 0), color.get("g", 0), color.get("r", 0))
     return {"status": "success"}
 
 if __name__ == "__main__":
     import uvicorn
-    import os
-    port = int(os.environ["PORT"])
+    port = int(os.environ.get("PORT", 8000))
     uvicorn.run(
         "server:app",
         host="0.0.0.0",

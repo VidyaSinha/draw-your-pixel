@@ -60,11 +60,12 @@ async def set_color(color: Dict[str, int]):
 if __name__ == "__main__":
     import uvicorn
     logging.basicConfig(level=logging.INFO)
-    port = int(os.environ.get("PORT", "10000"))
-    logging.info(f"Starting server on host '0.0.0.0' and port {port}")
+    port = int(os.environ.get("PORT", 8000))
+    host = "0.0.0.0"
+    logging.info(f"Starting server on {host}:{port}")
     uvicorn.run(
-        "server:app",
-        host="0.0.0.0",
+        app,
+        host=host,
         port=port,
-        reload=True  # Remove this in production
+        workers=1
     )

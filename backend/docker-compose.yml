@@ -10,8 +10,11 @@ services:
       - MEDIAPIPE_DETECTION_CONFIDENCE=0.7
       - MEDIAPIPE_TRACKING_CONFIDENCE=0.7
       - DEBUG=1
+      - DISPLAY=:99
+      - QT_X11_NO_MITSHM=1
     volumes:
       - .:/app
+      - /tmp/.X11-unix:/tmp/.X11-unix  # For X11 forwarding
     devices:
       - /dev/video0:/dev/video0  # For webcam access
     restart: unless-stopped

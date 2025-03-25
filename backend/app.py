@@ -1,6 +1,16 @@
 import cv2
 import numpy as np
 import mediapipe as mp
+import time
+import logging
+import os
+
+# Set up logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# Disable GUI if running in headless environment
+GUI_ENABLED = os.environ.get('DISPLAY') is not None
 
 # Initialize MediaPipe Hands
 mp_hands = mp.solutions.hands
@@ -57,11 +67,36 @@ colors = [
     (255, 255, 224),  # Pastel Yellow
 ]
 
-# Initialize webcam and canvas
-cap = cv2.VideoCapture(0)
-ret, frame = cap.read()
-h, w, _ = frame.shape
+# Initialize camera with retry mechanism
+def init_camera(max_retries=5, retry_delay=2):
+    for attempt in range(max_retries):
+        try:
+            cap = cv2.VideoCapture(0)
+            if cap is None or not cap.isOpened():
+                logger.warning(f"Failed to open camera, attempt {attempt + 1}/{max_retries}")
+                time.sleep(retry_delay)
+                continue
+            
+            ret, frame = cap.read()
+            if ret and frame is not None:
+                return cap, frame
+            
+            cap.release()
+            logger.warning(f"Failed to read frame, attempt {attempt + 1}/{max_retries}")
+            time.sleep(retry_delay)
+        except Exception as e:
+            logger.error(f"Camera initialization error: {str(e)}")
+            time.sleep(retry_delay)
+    
+    # If we couldn't get a camera, use a default canvas size
+    logger.warning("Could not initialize camera, using default canvas size")
+    return None, np.ones((480, 640, 3), dtype=np.uint8) * 255
 
+# Initialize camera or get default canvas
+cap, frame = init_camera()
+h, w = (480, 640) if frame is None else frame.shape[:2]
+
+# Create canvas and overlay
 canvas = np.ones((h, w, 3), dtype=np.uint8) * 255  # White canvas
 canvas_overlay = canvas.copy()
 
@@ -89,12 +124,22 @@ prev_x, prev_y = 0, 0
 prev_pos = None
 current_pos = None
 
-while cap.isOpened():
-    ret, frame = cap.read()
-    if not ret:
-        break
-    
-    frame = cv2.flip(frame, 1)
+while True:
+    if cap is not None and cap.isOpened():
+        ret, frame = cap.read()
+        if not ret or frame is None:
+            logger.warning("Failed to read frame, attempting to reinitialize camera")
+            cap.release()
+            cap, frame = init_camera()
+            continue
+        
+        frame = cv2.flip(frame, 1)
+    else:
+        # If no camera, use a blank frame
+        frame = np.ones((h, w, 3), dtype=np.uint8) * 200  # Light gray background
+        logger.warning("No camera available, using blank frame")
+
+    # Process frame with MediaPipe
     rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
     results = hands.process(rgb_frame)
 
@@ -185,16 +230,41 @@ while cap.isOpened():
     cv2.putText(frame, f"Mode: {cursor_type.upper()}", (10, 30), 
                 cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 0, 0), 2)
 
+    # Add status text to frame
+    if cap is None or not cap.isOpened():
+        cv2.putText(frame, "NO CAMERA AVAILABLE", (10, h-20), 
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+
     # Combine webcam feed and canvas
     combined = np.hstack((frame, canvas_overlay))
-    cv2.imshow("Air Canvas", combined)
+    if GUI_ENABLED:
+        try:
+            cv2.imshow("Air Canvas", combined)
+            key = cv2.waitKey(1)
+            if key == ord('q'):
+                break
+        except Exception as e:
+            logger.error(f"Display error: {str(e)}")
+            break
+    else:
+        # Add any headless processing here if needed
+        time.sleep(0.1)  # Prevent CPU overuse
 
     # Controls
-    key = cv2.waitKey(1)
-    if key == ord('q'):
-        break
-    elif key == ord('s'):
-        cv2.imwrite('canvas.png', canvas)
+    if GUI_ENABLED:
+        key = cv2.waitKey(1)
+        if key == ord('q'):
+            break
+        elif key == ord('s'):
+            cv2.imwrite('canvas.png', canvas)
+        elif key == ord('r'):
+            # Attempt to reinitialize camera
+            if cap is not None:
+                cap.release()
+            cap, _ = init_camera()
 
-cap.release()
-cv2.destroyAllWindows()
+# Cleanup
+if cap is not None:
+    cap.release()
+if GUI_ENABLED:
+    cv2.destroyAllWindows()

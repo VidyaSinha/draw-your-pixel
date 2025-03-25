@@ -8,6 +8,7 @@ import cv2
 from io import BytesIO
 import time
 import logging
+import app
 
 app = FastAPI()
 

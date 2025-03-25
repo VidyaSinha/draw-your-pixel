@@ -6,5 +6,12 @@ services:
       - "8000:8000"
     environment:
       - PORT=8000
+      - HOST=0.0.0.0
+      - MEDIAPIPE_DETECTION_CONFIDENCE=0.7
+      - MEDIAPIPE_TRACKING_CONFIDENCE=0.7
+      - DEBUG=1
     volumes:
       - .:/app
+    devices:
+      - /dev/video0:/dev/video0  # For webcam access
+    restart: unless-stopped

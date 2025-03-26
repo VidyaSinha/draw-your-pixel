@@ -4,6 +4,7 @@ import cv2
 import numpy as np
 import mediapipe as mp
 import os
+import gc
 from flask import Flask, render_template, send_from_directory
 from flask_sock import Sock
 
@@ -12,7 +13,6 @@ sock = Sock(app)
 
 # Initialize MediaPipe Hands
 mp_hands = mp.solutions.hands
-hands = mp_hands.Hands(min_detection_confidence=0.7, min_tracking_confidence=0.7, max_num_hands=1)
 
 # Serve static files
 @app.route('/static/<path:path>')
@@ -27,6 +27,8 @@ def index():
 # WebSocket endpoint for real-time hand tracking
 @sock.route('/ws')
 def handle_websocket(ws):
+    # Initialize hands object within the WebSocket context
+    hands = mp_hands.Hands(min_detection_confidence=0.7, min_tracking_confidence=0.7, max_num_hands=1)
     try:
         while True:
             # Receive frame data from client
@@ -41,6 +43,11 @@ def handle_websocket(ws):
             
             # Process frame with MediaPipe
             results = hands.process(rgb_frame)
+            
+            # Clear unused variables
+            del frame_array
+            del frame
+            del rgb_frame
             
             response_data = {
                 'mode': 'idle',
@@ -79,8 +86,19 @@ def handle_websocket(ws):
             # Send response back to client
             ws.send(json.dumps(response_data))
             
+            # Clear MediaPipe results
+            del results
+            
+            # Force garbage collection
+            gc.collect()
+            
     except Exception as e:
         print(f"WebSocket error: {e}")
+    finally:
+        # Clean up MediaPipe resources
+        hands.close()
+        del hands
+        gc.collect()
 
 if __name__ == '__main__':
     # Get port from environment variable with fallback to 5000

@@ -23,6 +23,13 @@ RUN apt-get update && apt-get install -y \
     xvfb \
     && rm -rf /var/lib/apt/lists/*
 
+# Add these permissions for video device access
+RUN addgroup --system video \
+    && usermod -a -G video root
+
+# Make sure to add these device permissions
+COPY --chown=root:video /dev/video0 /dev/video0
+
 # Copy requirements first to leverage Docker cache
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt

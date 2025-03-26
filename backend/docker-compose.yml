@@ -17,4 +17,7 @@ services:
       - /tmp/.X11-unix:/tmp/.X11-unix  # For X11 forwarding
     devices:
       - /dev/video0:/dev/video0  # For webcam access
+    group_add:
+      - video
+    privileged: true  # Be cautious with this in production
     restart: unless-stopped

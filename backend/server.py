@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, WebSocket
 from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from typing import Dict
@@ -8,7 +8,10 @@ import cv2
 from io import BytesIO
 import time
 import logging
+import json
+import base64
 import app
+import mediapipe as mp
 
 app = FastAPI()
 
@@ -25,25 +28,54 @@ app.add_middleware(
 canvas = np.ones((480, 640, 3), dtype=np.uint8) * 255
 brush_color = (0, 0, 255)  # Default to red color
 
+# Initialize MediaPipe
+mp_hands = mp.solutions.hands
+hands = mp_hands.Hands(
+    min_detection_confidence=0.7,
+    min_tracking_confidence=0.7,
+    max_num_hands=1
+)
+
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    await websocket.accept()
+    
+    try:
+        while True:
+            # Receive base64 image from client
+            data = await websocket.receive_json()
+            
+            # Process hand tracking
+            image_data = np.frombuffer(data['frame'], dtype=np.uint8)
+            frame = cv2.imdecode(image_data, cv2.IMREAD_COLOR)
+            rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            results = hands.process(rgb_frame)
+            
+            # Send hand landmarks back to client
+            response = {
+                'hand_data': None
+            }
+            
+            if results.multi_hand_landmarks:
+                # Convert landmarks to a serializable format
+                landmarks = []
+                for hand_landmarks in results.multi_hand_landmarks:
+                    for landmark in hand_landmarks.landmark:
+                        landmarks.append({
+                            'x': landmark.x,
+                            'y': landmark.y,
+                            'z': landmark.z
+                        })
+                response['hand_data'] = landmarks
+            
+            await websocket.send_json(response)
+    
+    except Exception as e:
+        logging.error(f"WebSocket error: {str(e)}")
+
 @app.get("/")
 async def root():
     return {"message": "Server running"}
-
-def process_frame():
-    global canvas
-    while True:
-        _, buffer = cv2.imencode(".jpg", canvas)
-        frame = buffer.tobytes()
-        yield (b'--frame\r\n'
-               b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
-        time.sleep(0.1)
-
-@app.get("/video_feed")
-async def video_feed():
-    return StreamingResponse(
-        process_frame(),
-        media_type='multipart/x-mixed-replace;boundary=frame'
-    )
 
 @app.post("/clear_canvas")
 async def clear_canvas():
@@ -60,6 +92,7 @@ async def set_color(color: Dict[str, int]):
 
 if __name__ == "__main__":
     import uvicorn
+    import asyncio
     logging.basicConfig(level=logging.INFO)
     port = int(os.environ.get("PORT", 8000))
     host = "0.0.0.0"

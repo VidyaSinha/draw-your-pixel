@@ -1,105 +1,88 @@
-from fastapi import FastAPI, WebSocket
-from fastapi.responses import StreamingResponse
-from fastapi.middleware.cors import CORSMiddleware
-from typing import Dict
-import numpy as np
-import os
-import cv2
-from io import BytesIO
-import time
-import logging
+import asyncio
 import json
-import base64
-import app
+import cv2
+import numpy as np
 import mediapipe as mp
+import os
+from flask import Flask, render_template, send_from_directory
+from flask_sock import Sock
 
-app = FastAPI()
+app = Flask(__name__)
+sock = Sock(app)
 
-# Configure CORS
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# Initialize drawing components
-canvas = np.ones((480, 640, 3), dtype=np.uint8) * 255
-brush_color = (0, 0, 255)  # Default to red color
-
-# Initialize MediaPipe
+# Initialize MediaPipe Hands
 mp_hands = mp.solutions.hands
-hands = mp_hands.Hands(
-    min_detection_confidence=0.7,
-    min_tracking_confidence=0.7,
-    max_num_hands=1
-)
+hands = mp_hands.Hands(min_detection_confidence=0.7, min_tracking_confidence=0.7, max_num_hands=1)
 
-@app.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket):
-    await websocket.accept()
-    
+# Serve static files
+@app.route('/static/<path:path>')
+def send_static(path):
+    return send_from_directory('static', path)
+
+# Serve index page
+@app.route('/')
+def index():
+    return send_from_directory('static', 'index.html')
+
+# WebSocket endpoint for real-time hand tracking
+@sock.route('/ws')
+def handle_websocket(ws):
     try:
         while True:
-            # Receive base64 image from client
-            data = await websocket.receive_json()
+            # Receive frame data from client
+            frame_data = ws.receive()
             
-            # Process hand tracking
-            image_data = np.frombuffer(data['frame'], dtype=np.uint8)
-            frame = cv2.imdecode(image_data, cv2.IMREAD_COLOR)
-            rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            # Convert binary data to numpy array
+            frame_array = np.frombuffer(frame_data, dtype=np.uint8)
+            frame = frame_array.reshape((480, 640, 4))  # RGBA format
+            
+            # Convert to RGB for MediaPipe
+            rgb_frame = cv2.cvtColor(frame, cv2.COLOR_RGBA2RGB)
+            
+            # Process frame with MediaPipe
             results = hands.process(rgb_frame)
             
-            # Send hand landmarks back to client
-            response = {
-                'hand_data': None
+            response_data = {
+                'mode': 'idle',
+                'hand_data': []
             }
             
             if results.multi_hand_landmarks:
-                # Convert landmarks to a serializable format
-                landmarks = []
-                for hand_landmarks in results.multi_hand_landmarks:
-                    for landmark in hand_landmarks.landmark:
-                        landmarks.append({
-                            'x': landmark.x,
-                            'y': landmark.y,
-                            'z': landmark.z
-                        })
-                response['hand_data'] = landmarks
+                hand_landmarks = results.multi_hand_landmarks[0]
+                
+                # Extract hand landmarks
+                landmarks = [{
+                    'x': lm.x,
+                    'y': lm.y,
+                    'z': lm.z
+                } for lm in hand_landmarks.landmark]
+                
+                # Detect gestures
+                index_tip = landmarks[8]
+                thumb_tip = landmarks[4]
+                
+                # Calculate distance between thumb and index
+                distance = np.sqrt(
+                    (thumb_tip['x'] - index_tip['x'])**2 +
+                    (thumb_tip['y'] - index_tip['y'])**2
+                )
+                
+                # Determine mode based on finger positions
+                if all(landmarks[tip]['y'] < landmarks[pip]['y'] 
+                       for tip, pip in zip([8,12,16,20], [6,10,14,18])):
+                    response_data['mode'] = 'eraser'
+                elif landmarks[8]['y'] < landmarks[6]['y']:
+                    response_data['mode'] = 'draw'
+                
+                response_data['hand_data'] = landmarks
             
-            await websocket.send_json(response)
-    
+            # Send response back to client
+            ws.send(json.dumps(response_data))
+            
     except Exception as e:
-        logging.error(f"WebSocket error: {str(e)}")
+        print(f"WebSocket error: {e}")
 
-@app.get("/")
-async def root():
-    return {"message": "Server running"}
-
-@app.post("/clear_canvas")
-async def clear_canvas():
-    global canvas
-    if canvas is not None:
-        canvas = np.ones_like(canvas) * 255
-    return {"status": "success"}
-
-@app.post("/set_color")
-async def set_color(color: Dict[str, int]):
-    global brush_color
-    brush_color = (color.get("b", 0), color.get("g", 0), color.get("r", 0))
-    return {"status": "success"}
-
-if __name__ == "__main__":
-    import uvicorn
-    import asyncio
-    logging.basicConfig(level=logging.INFO)
-    port = int(os.environ.get("PORT", 8000))
-    host = "0.0.0.0"
-    logging.info(f"Starting server on {host}:{port}")
-    uvicorn.run(
-        app,
-        host=host,
-        port=port,
-        workers=1
-    )
+if __name__ == '__main__':
+    # Get port from environment variable with fallback to 5000
+    port = int(os.environ.get('PORT', 5000))
+    app.run(host='0.0.0.0', port=port, debug=False)
